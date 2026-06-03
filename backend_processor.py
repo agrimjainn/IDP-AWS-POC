@@ -7,6 +7,8 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import logging
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
+load_dotenv()
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
