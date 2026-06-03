@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Processor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #000; color: #fff; font-family: 'Segoe UI', sans-serif; }
+
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .spin { animation: spin 1s linear infinite; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+
+        .card { background: #111; border: 1px solid #222; border-radius: 12px; }
+        .card-header { background: #1a1a1a; border-radius: 12px; cursor: pointer; transition: background 0.2s; }
+        .card-header:hover { background: #222; }
+
+        .mode-btn { border: 1px solid #333; background: #111; border-radius: 10px; cursor: pointer; transition: all 0.2s; }
+        .mode-btn:hover { border-color: #555; background: #1a1a1a; }
+        .mode-btn.selected { border-color: #fff; background: #1a1a1a; }
+
+        .upload-area { border: 2px dashed #333; border-radius: 12px; background: #0a0a0a; cursor: pointer; transition: all 0.2s; }
+        .upload-area:hover { border-color: #555; background: #111; }
+
+        .extract-btn { background: #fff; color: #000; border-radius: 8px; font-weight: 700; cursor: pointer; transition: all 0.2s; }
+        .extract-btn:hover { background: #e0e0e0; }
+        .extract-btn:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+        .back-btn { background: #1a1a1a; border: 1px solid #333; color: #fff; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .back-btn:hover { background: #222; }
+
+        .badge-success { background: #0f2; color: #000; font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+        .badge-fail { background: #f20; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+
+        .field-card { background: #0a0a0a; border: 1px solid #1f1f1f; border-radius: 8px; padding: 12px; }
+        .field-label { color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+        .field-value { color: #fff; font-size: 14px; margin-top: 4px; word-break: break-word; }
+
+        pre { background: #0a0a0a; border: 1px solid #1f1f1f; border-radius: 8px; padding: 16px; font-size: 12px; overflow-x: auto; color: #ccc; white-space: pre-wrap; word-break: break-word; }
+
+        .progress-bar-bg { background: #1a1a1a; border-radius: 999px; height: 4px; }
+        .progress-bar-fill { background: #fff; border-radius: 999px; height: 4px; transition: width 0.5s ease; }
+
+        .file-tag { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 4px 10px; font-size: 12px; color: #aaa; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #000; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+    </style>
+</head>
+<body class="min-h-screen overflow-auto">
+
+<div class="max-w-4xl mx-auto px-4 py-12">
+
+    <!-- Header -->
+    <div class="text-center mb-12">
+        <h1 class="text-4xl font-bold tracking-tight mb-2">Document Processor</h1>
+        <p class="text-gray-500 text-sm">Extract structured data from invoices using AWS AI</p>
+    </div>
+
+    <!-- Mode Selection -->
+    <div id="modeSection">
+        <p class="text-gray-400 text-sm mb-4 text-center">Select a processing method</p>
+        <div class="grid grid-cols-2 gap-4 mb-8">
+            <button class="mode-btn p-6 text-left" id="bedrockBtn" onclick="selectMode('bedrock')">
+                <div class="text-lg font-bold mb-1">⚡ Bedrock</div>
+                <div class="text-gray-500 text-sm">Fast · Synchronous · 5–10 sec per file</div>
+            </button>
+            <button class="mode-btn p-6 text-left" id="bdaBtn" onclick="selectMode('bda')">
+                <div class="text-lg font-bold mb-1">🗄 AWS BDA</div>
+                <div class="text-gray-500 text-sm">Batch · Async · 1–5 min per file</div>
+            </button>
+        </div>
+    </div>
+
+    <!-- Upload Section -->
+    <div id="uploadSection" style="display:none;">
+        <div class="upload-area p-10 text-center mb-6" onclick="document.getElementById('fileInput').click()">
+            <div class="text-3xl mb-3">📄</div>
+            <div class="font-semibold mb-1">Click to upload PDFs</div>
+            <div class="text-gray-500 text-sm">Multiple files supported · PDF only · Max 50MB each</div>
+            <input type="file" id="fileInput" accept=".pdf" multiple onchange="handleFileSelect(event)" class="hidden">
+        </div>
+
+        <div id="fileList" class="flex flex-wrap gap-2 mb-6"></div>
+
+        <div id="uploadError" class="text-red-400 text-sm mb-4" style="display:none;"></div>
+
+        <div class="flex gap-3">
+            <button class="extract-btn px-8 py-3 text-sm" id="extractBtn" onclick="handleProcessing()" disabled>Extract Data</button>
+            <button class="back-btn px-6 py-3 text-sm" onclick="goBack()">Back</button>
+        </div>
+    </div>
+
+    <!-- Processing Section -->
+    <div id="processingSection" style="display:none;">
+        <div class="card p-8 text-center fade-in">
+            <div class="flex justify-center mb-6">
+                <div class="w-10 h-10 border-2 border-white border-t-transparent rounded-full spin"></div>
+            </div>
+            <div id="processingStatus" class="text-white font-semibold text-lg mb-2">Starting...</div>
+            <div id="processingSubStatus" class="text-gray-500 text-sm mb-6"></div>
+            <div class="progress-bar-bg mb-2">
+                <div class="progress-bar-fill" id="progressBar" style="width:0%"></div>
+            </div>
+            <div id="progressLabel" class="text-gray-600 text-xs mt-1">0 / 0 files</div>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div id="resultsSection" style="display:none;">
+        <div class="flex items-center justify-between mb-6 fade-in">
+            <h2 class="text-xl font-bold">Results</h2>
+            <button class="back-btn px-5 py-2 text-sm" onclick="resetAll()">Process More</button>
+        </div>
+        <div id="resultsContainer" class="space-y-3"></div>
+    </div>
+
+</div>
+
+<script>
+    let selectedMode = null;
+    let selectedFiles = [];
+
+    function selectMode(mode) {
+        selectedMode = mode;
+        document.getElementById('bedrockBtn').classList.remove('selected');
+        document.getElementById('bdaBtn').classList.remove('selected');
+        document.getElementById(mode === 'bedrock' ? 'bedrockBtn' : 'bdaBtn').classList.add('selected');
+        document.getElementById('modeSection').style.display = 'none';
+        document.getElementById('uploadSection').style.display = 'block';
+    }
+
+    function handleFileSelect(e) {
+        const files = Array.from(e.target.files).filter(f => f.type === 'application/pdf');
+        const invalid = Array.from(e.target.files).filter(f => f.type !== 'application/pdf');
+
+        if (invalid.length > 0) {
+            document.getElementById('uploadError').textContent = `${invalid.length} non-PDF file(s) ignored.`;
+            document.getElementById('uploadError').style.display = 'block';
+        } else {
+            document.getElementById('uploadError').style.display = 'none';
+        }
+
+        selectedFiles = files;
+        renderFileList();
+        document.getElementById('extractBtn').disabled = selectedFiles.length === 0;
+    }
+
+    function renderFileList() {
+        const container = document.getElementById('fileList');
+        container.innerHTML = '';
+        selectedFiles.forEach(f => {
+            const tag = document.createElement('div');
+            tag.className = 'file-tag';
+            tag.textContent = f.name;
+            container.appendChild(tag);
+        });
+    }
+
+    async function handleProcessing() {
+        if (!selectedFiles.length || !selectedMode) return;
+
+        document.getElementById('uploadSection').style.display = 'none';
+        document.getElementById('processingSection').style.display = 'block';
+
+        const total = selectedFiles.length;
+
+        if (selectedMode === 'bedrock') {
+            const allResults = [];
+            for (let i = 0; i < selectedFiles.length; i++) {
+                const file = selectedFiles[i];
+                const pct = Math.round((i / total) * 100);
+                setProgress(pct, `Processing file ${i + 1} of ${total}`, file.name, i, total);
+
+                const formData = new FormData();
+                formData.append('files', file);
+                formData.append('mode', 'bedrock');
+
+                try {
+                    const response = await fetch('http://localhost:5000/api/process-documents', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    if (data.results) allResults.push(...data.results);
+                    else allResults.push({ success: false, filename: file.name, error: data.error || 'Unknown error' });
+                } catch (err) {
+                    allResults.push({ success: false, filename: file.name, error: err.message });
+                }
+            }
+            setProgress(100, 'Done!', '', total, total);
+            showResults(allResults);
+
+        } else {
+            setProgress(10, `Submitting ${total} file(s) to BDA...`, '', 0, total);
+            const formData = new FormData();
+            selectedFiles.forEach(f => formData.append('files', f));
+            formData.append('mode', 'bda');
+
+            try {
+                setProgress(30, 'Jobs submitted. Waiting for results...', 'This may take a few minutes', 0, total);
+                const response = await fetch('http://localhost:5000/api/process-documents', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                setProgress(100, 'Done!', '', total, total);
+                if (data.results) showResults(data.results);
+                else showResults([{ success: false, filename: 'All files', error: data.error || 'Unknown error' }]);
+            } catch (err) {
+                showResults([{ success: false, filename: 'All files', error: err.message }]);
+            }
+        }
+    }
+
+    function setProgress(pct, status, subStatus, done, total) {
+        document.getElementById('progressBar').style.width = pct + '%';
+        document.getElementById('processingStatus').textContent = status;
+        document.getElementById('processingSubStatus').textContent = subStatus;
+        document.getElementById('progressLabel').textContent = total > 0 ? `${done} / ${total} files` : '';
+    }
+
+    function showResults(results) {
+        document.getElementById('processingSection').style.display = 'none';
+        document.getElementById('resultsSection').style.display = 'block';
+
+        const container = document.getElementById('resultsContainer');
+        container.innerHTML = '';
+
+        results.forEach((result, idx) => {
+            const card = document.createElement('div');
+            card.className = 'card fade-in';
+
+            const badge = result.success
+                ? '<span class="badge-success">✓ Success</span>'
+                : '<span class="badge-fail">✗ Failed</span>';
+
+            let bodyHTML = '';
+            if (result.success) {
+                const header = result.extractedData.headerFields || {};
+                const lines = result.extractedData.lineItemFields || [];
+
+                const headerGrid = Object.entries(header).map(([k, v]) => `
+                    <div class="field-card">
+                        <div class="field-label">${k}</div>
+                        <div class="field-value">${v || '—'}</div>
+                    </div>`).join('');
+
+                const lineCards = lines.map((item, i) => `
+                    <div class="field-card mb-2">
+                        <div class="text-xs text-gray-600 font-semibold mb-2">Line Item ${i + 1}</div>
+                        <div class="grid grid-cols-2 gap-2">
+                            ${Object.entries(item).map(([k, v]) => `
+                                <div>
+                                    <div class="field-label">${k}</div>
+                                    <div class="field-value text-sm">${v || '—'}</div>
+                                </div>`).join('')}
+                        </div>
+                    </div>`).join('');
+
+                bodyHTML = `
+                    <div class="p-5 border-t border-gray-800">
+                        <div class="mb-4">
+                            <div class="text-xs text-gray-500 font-semibold uppercase tracking-widest mb-3">Header Fields</div>
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">${headerGrid}</div>
+                        </div>
+                        ${lines.length > 0 ? `
+                        <div class="mb-4">
+                            <div class="text-xs text-gray-500 font-semibold uppercase tracking-widest mb-3">Line Items</div>
+                            ${lineCards}
+                        </div>` : ''}
+                        <div>
+                            <div class="text-xs text-gray-500 font-semibold uppercase tracking-widest mb-3">Raw JSON</div>
+                            <pre>${JSON.stringify(result.extractedData, null, 2)}</pre>
+                        </div>
+                        <button onclick="downloadJSON('${result.filename}', ${idx})"
+                            class="mt-4 extract-btn px-5 py-2 text-xs">Download JSON</button>
+                    </div>`;
+            } else {
+                bodyHTML = `
+                    <div class="p-5 border-t border-gray-800">
+                        <div class="text-red-400 text-sm">${result.error}</div>
+                    </div>`;
+            }
+
+            card.innerHTML = `
+                <div class="card-header p-4 flex items-center justify-between" onclick="toggleCard(${idx})">
+                    <div class="flex items-center gap-3">
+                        <span class="text-gray-400 text-sm font-mono" id="arrow-${idx}">▶</span>
+                        <span class="font-medium text-sm">${result.filename}</span>
+                    </div>
+                    ${badge}
+                </div>
+                <div id="card-body-${idx}" style="display:none;">${bodyHTML}</div>`;
+
+            container.appendChild(card);
+        });
+
+        window._results = results;
+    }
+
+    function toggleCard(idx) {
+        const body = document.getElementById(`card-body-${idx}`);
+        const arrow = document.getElementById(`arrow-${idx}`);
+        const isOpen = body.style.display !== 'none';
+        body.style.display = isOpen ? 'none' : 'block';
+        arrow.textContent = isOpen ? '▶' : '▼';
+    }
+
+    function downloadJSON(filename, idx) {
+        const result = window._results[idx];
+        const blob = new Blob([JSON.stringify(result.extractedData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename.replace('.pdf', '') + '_extracted.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    function goBack() {
+        selectedMode = null;
+        selectedFiles = [];
+        document.getElementById('fileList').innerHTML = '';
+        document.getElementById('uploadError').style.display = 'none';
+        document.getElementById('extractBtn').disabled = true;
+        document.getElementById('uploadSection').style.display = 'none';
+        document.getElementById('modeSection').style.display = 'block';
+        document.getElementById('bedrockBtn').classList.remove('selected');
+        document.getElementById('bdaBtn').classList.remove('selected');
+    }
+
+    function resetAll() {
+        goBack();
+        document.getElementById('resultsSection').style.display = 'none';
+        document.getElementById('resultsContainer').innerHTML = '';
+    }
+</script>
+</body>
+</html>
